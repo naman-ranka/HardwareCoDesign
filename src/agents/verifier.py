@@ -3,13 +3,14 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.state.state import DesignState
 from src.tools.run_simulation import run_simulation
+from src.config import DEFAULT_MODEL
 
 # Initialize LLM
 if "GOOGLE_API_KEY" not in os.environ:
     from dotenv import load_dotenv
     load_dotenv()
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+llm = ChatGoogleGenerativeAI(model=DEFAULT_MODEL, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
 SYSTEM_PROMPT = """You are an expert Verification Engineer.
 Your goal is to write a robust SystemVerilog/Verilog testbench to verify a given RTL design.

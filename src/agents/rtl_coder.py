@@ -2,6 +2,7 @@ import os
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.state.state import DesignState
+from src.config import DEFAULT_MODEL
 
 # Initialize LLM
 if "GOOGLE_API_KEY" not in os.environ:
@@ -9,7 +10,7 @@ if "GOOGLE_API_KEY" not in os.environ:
     from dotenv import load_dotenv
     load_dotenv()
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+llm = ChatGoogleGenerativeAI(model=DEFAULT_MODEL, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
 SYSTEM_PROMPT = """You are an expert Verilog/SystemVerilog RTL Engineer. 
 Your goal is to write syntactically correct and functionally accurate Verilog modules based on specifications.

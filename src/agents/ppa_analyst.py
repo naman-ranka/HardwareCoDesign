@@ -4,11 +4,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from dotenv import load_dotenv
 from src.state.state import DesignState
 from src.tools.get_ppa import get_ppa_metrics
+from src.config import DEFAULT_MODEL
 
 load_dotenv()
 
 # Initialize LLM
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.environ.get("GOOGLE_API_KEY"))
+llm = ChatGoogleGenerativeAI(model=DEFAULT_MODEL, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
 SYSTEM_PROMPT = """You are an expert Digital Design Engineer specializing in PPA (Power, Performance, Area) Optimization.
 Your goal is to analyze the synthesis results of a Verilog design and provide insights.

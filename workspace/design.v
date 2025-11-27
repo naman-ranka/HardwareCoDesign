@@ -1,18 +1,11 @@
-module up_counter_4bit (
-    input  wire clk,
-    input  wire rst,
-    output reg  [3:0] count
+
+module mux2 (
+    input wire i0,
+    input wire i1,
+    input wire sel,
+    output wire out
 );
 
-    // Asynchronous active-high reset and synchronous counter logic
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            // On reset, set the count to 0
-            count <= 4'b0000;
-        end else begin
-            // On the positive edge of the clock, increment the count
-            count <= count + 1;
-        end
-    end
+assign out = sel ? i1 : i0;
 
 endmodule
