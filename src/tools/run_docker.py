@@ -2,7 +2,7 @@ import subprocess
 import os
 import sys
 
-def run_docker_command(command, image="openroad/orfs:latest", cwd="/OpenROAD-flow-scripts/flow", workspace_path=None):
+def run_docker_command(command, image="openroad/orfs:latest", cwd="/OpenROAD-flow-scripts/flow", workspace_path=None, volumes=None):
     """
     Executes a command inside the OpenROAD Docker container.
     
@@ -12,6 +12,7 @@ def run_docker_command(command, image="openroad/orfs:latest", cwd="/OpenROAD-flo
         cwd (str): Working directory inside the container.
         workspace_path (str): Absolute path to the local workspace directory. 
                               If None, defaults to ../../workspace relative to this file.
+        volumes (list): Optional list of volume mappings ["host_path:container_path"].
         
     Returns:
         dict: {
@@ -41,11 +42,19 @@ def run_docker_command(command, image="openroad/orfs:latest", cwd="/OpenROAD-flo
     # We mount the workspace to /workspace
     docker_cmd = [
         "docker", "run", "--rm",
-        "-v", f"{workspace_path}:/workspace",
+        "-v", f"{workspace_path}:/workspace"
+    ]
+    
+    # Add custom volumes
+    if volumes:
+        for vol in volumes:
+            docker_cmd.extend(["-v", vol])
+
+    docker_cmd.extend([
         "-w", cwd,
         image,
         "bash", "-c", command
-    ]
+    ])
 
     try:
         # Run the command

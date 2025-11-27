@@ -1,20 +1,16 @@
+// Testbench for up_counter_4bit
 module tb;
 
-    // Inputs
-    reg clk;
-    reg rst;
-
-    // Outputs
-    wire [3:0] out;
-
-    // Test status
-    integer test_passed = 1;
+    // Signals to connect to the DUT
+    reg  clk;
+    reg  rst;
+    wire [3:0] count;
 
     // Instantiate the Device Under Test (DUT)
-    counter dut (
+    up_counter_4bit dut (
         .clk(clk),
         .rst(rst),
-        .out(out)
+        .count(count)
     );
 
     // Clock generation
@@ -25,80 +21,78 @@ module tb;
 
     // Test sequence
     initial begin
-        $display("Starting test...");
+        integer error_count = 0;
+        integer i;
+
+        $display("Starting test for up_counter_4bit...");
 
         // 1. Test asynchronous reset
         $display("Step 1: Testing asynchronous reset...");
-        rst = 1;
-        #10; // Hold reset for some time
-        #1; // Delay for checking
-        if (out !== 4'b0000) begin
-            $display("ERROR: Reset failed. Expected 0, got %d", out);
-            test_passed = 0;
+        rst = 1; // Assert reset
+        #12;     // Wait for a duration longer than a clock cycle
+        #1;      // Wait for propagation delay
+        if (count !== 4'b0000) begin
+            $display("ERROR: Reset failed. Expected count=0, got %d", count);
+            error_count = error_count + 1;
         end
+        rst = 0; // De-assert reset
         
-        rst = 0;
+        // Wait for the first rising edge after reset is de-asserted
+        @(posedge clk);
         #1;
-        if (out !== 4'b0000) begin
-            $display("ERROR: Output changed on reset de-assertion. Expected 0, got %d", out);
-            test_passed = 0;
+        if (count !== 4'b0001) begin
+            $display("ERROR: Count did not increment to 1 after reset. Got %d", count);
+            error_count = error_count + 1;
         end
-        
-        // 2. Test normal counting sequence
-        $display("Step 2: Testing normal counting...");
-        for (integer i = 1; i <= 15; i = i + 1) begin
+
+        // 2. Test counting sequence from 2 to 15
+        $display("Step 2: Testing counting sequence...");
+        for (i = 2; i <= 15; i = i + 1) begin
             @(posedge clk);
             #1; // Wait for output to settle
-            if (out !== i) begin
-                $display("ERROR: Count mismatch at time %0t. Expected %d, got %d", $time, i, out);
-                test_passed = 0;
+            if (count !== i) begin
+                $display("ERROR: Count mismatch. Expected %d, got %d", i, count);
+                error_count = error_count + 1;
             end
         end
 
-        // 3. Test rollover
+        // 3. Test rollover from 15 to 0
         $display("Step 3: Testing rollover...");
-        @(posedge clk); // Should go from 15 to 0
-        #1;
-        if (out !== 4'b0000) begin
-            $display("ERROR: Rollover from 15 to 0 failed. Expected 0, got %d", out);
-            test_passed = 0;
-        end
-
-        // 4. Test reset during operation
-        $display("Step 4: Testing reset during operation...");
-        // Count up to 5
-        for (integer i = 1; i <= 5; i = i + 1) begin
-            @(posedge clk);
-        end
-        #1;
-        if (out !== 5) begin
-             $display("ERROR: Pre-reset count mismatch. Expected 5, got %d", out);
-             test_passed = 0;
-        end
-
-        // Assert reset
-        rst = 1;
-        #2; // Reset is asynchronous, should take effect immediately
-        if (out !== 4'b0000) begin
-            $display("ERROR: Mid-operation reset failed. Expected 0, got %d", out);
-            test_passed = 0;
-        end
-        
-        // De-assert reset and check if it starts from 0
-        rst = 0;
         @(posedge clk);
         #1;
-        if (out !== 4'b0001) begin
-            $display("ERROR: Post-reset count failed. Expected 1, got %d", out);
-            test_passed = 0;
+        if (count !== 4'b0000) begin
+            $display("ERROR: Rollover failed. Expected count=0, got %d", count);
+            error_count = error_count + 1;
         end
-        
-        // Final result
-        #20;
-        if (test_passed) begin
+
+        // 4. Test mid-cycle asynchronous reset
+        $display("Step 4: Testing mid-cycle asynchronous reset...");
+        // Let the counter run for a few cycles
+        @(posedge clk); // count becomes 1
+        @(posedge clk); // count becomes 2
+        #2; // Wait for some time, not aligned with clock edge
+        rst = 1; // Assert reset
+        #1; // Wait for propagation
+        if (count !== 4'b0000) begin
+            $display("ERROR: Mid-cycle reset failed. Expected count=0, got %d", count);
+            error_count = error_count + 1;
+        end
+        #10;
+        rst = 0; // De-assert reset
+
+        // Final check after mid-cycle reset
+        @(posedge clk);
+        #1;
+        if (count !== 4'b0001) begin
+            $display("ERROR: Count did not start from 1 after mid-cycle reset. Got %d", count);
+            error_count = error_count + 1;
+        end
+
+        // Final test result
+        if (error_count == 0) begin
             $display("TEST PASSED");
         end else begin
-            $display("TEST FAILED");
+            $display("TEST FAILED with %d errors.", error_count);
         end
 
         $finish;
