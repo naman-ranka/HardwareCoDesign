@@ -67,7 +67,9 @@ export DESIGN_NAME = {top_module}
 export PLATFORM = {platform}
 export VERILOG_FILES = {" ".join(container_verilog_files)}
 export SDC_FILE = /workspace/constraints.sdc
-export CORE_UTILIZATION = 40
+export CORE_UTILIZATION = 5
+export CORE_ASPECT_RATIO = 1
+export CORE_MARGIN = 2
 """
     
     config_file = os.path.join(cwd, "config.mk")

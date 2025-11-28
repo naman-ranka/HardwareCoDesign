@@ -4,20 +4,7 @@ import glob
 
 def get_ppa_metrics(log_dir):
     """
-    Parses OpenROAD/Yosys logs to extract PPA metrics.
-    
-    Args:
-        log_dir (str): Path to the directory containing logs (e.g., workspace/orfs_logs).
-        
-    Returns:
-        dict: {
-            "area_um2": float,
-            "cell_count": int,
-            "wns_ns": float, # Worst Negative Slack
-            "tns_ns": float, # Total Negative Slack
-            "power_uw": float,
-            "errors": list
-        }
+    Robustly extracts PPA metrics by scanning multiple directories and file types.
     """
     metrics = {
         "area_um2": None,
@@ -28,72 +15,81 @@ def get_ppa_metrics(log_dir):
         "errors": []
     }
     
-    if not os.path.exists(log_dir):
-        metrics["errors"].append(f"Log directory not found: {log_dir}")
-        return metrics
-
-    # 1. Parse Synthesis Reports (e.g., 1_1_yosys.stat.rpt)
-    # Prioritize reports over logs
-    # Robustly find sibling 'orfs_reports' dir
+    # Define search paths
+    # We assume log_dir is .../workspace/orfs_logs
     workspace_dir = os.path.dirname(log_dir.rstrip(os.sep))
-    reports_dir = os.path.join(workspace_dir, "orfs_reports")
-    
-    report_patterns = [
-        os.path.join(log_dir, "**", "*yosys.stat.rpt"),
-        os.path.join(reports_dir, "**", "*yosys.stat.rpt"),
-        os.path.join(reports_dir, "**", "*synth_stat.txt")
-    ]
-    log_patterns = [
-        os.path.join(log_dir, "**", "*yosys.log")
+    search_dirs = [
+        os.path.join(workspace_dir, "orfs_reports"),
+        os.path.join(workspace_dir, "orfs_logs"),
+        os.path.join(workspace_dir, "orfs_results"),
+        log_dir
     ]
     
-    found_reports = []
-    for pattern in report_patterns:
-        found_reports.extend(glob.glob(pattern, recursive=True))
-        
-    found_logs = []
-    for pattern in log_patterns:
-        found_logs.extend(glob.glob(pattern, recursive=True))
-        
-    # Pick the best file: latest report, else latest log
-    latest_file = None
-    if found_reports:
-        latest_file = max(found_reports, key=os.path.getmtime)
-    elif found_logs:
-        latest_file = max(found_logs, key=os.path.getmtime)
-        
-    if latest_file:
-        try:
-            with open(latest_file, "r") as f:
-                content = f.read()
-                print(f"DEBUG: Content snippet:\n{content[:2000]}", flush=True)
-                
-                # Extract Chip Area
-                # Pattern: "Chip area for module '\w+': \s+([0-9.]+)"
-                # Robust: match "Chip area" ... ":" ... number
-                area_match = re.search(r"Chip area for module.*:\s*([0-9.]+)", content)
-                if area_match:
-                    metrics["area_um2"] = float(area_match.group(1))
-                    
-                # Extract Cell Count
-                # Pattern 1: "Number of cells: \s+([0-9]+)"
-                cell_match = re.search(r"Number of cells:.*([0-9]+)", content)
-                if cell_match:
-                    metrics["cell_count"] = int(cell_match.group(1))
-                else:
-                    # Pattern 2: "   10  142.637      cells"
-                    cell_match = re.search(r"^\s*([0-9]+)\s+.*cells", content, re.MULTILINE)
-                    if cell_match:
-                        metrics["cell_count"] = int(cell_match.group(1))
-                    
-        except Exception as e:
-            metrics["errors"].append(f"Error parsing file {latest_file}: {e}")
-    else:
-        metrics["errors"].append("No Yosys log or report found.")
+    # Helper to find files
+    def find_files(pattern):
+        files = []
+        for d in search_dirs:
+            if os.path.exists(d):
+                files.extend(glob.glob(os.path.join(d, "**", pattern), recursive=True))
+        return sorted(files, key=os.path.getmtime, reverse=True) # Newest first
 
-    # 2. Parse Timing Log (e.g., 3_..._sta.log or similar)
-    # Since our flow failed early, we might not have STA logs.
-    # But if we did, we'd look for "wns" or "slack".
-    # For now, we focus on Synthesis metrics.
-    
+    # 1. Extract Area & Cell Count (Synthesis Reports)
+    area_files = find_files("*stat.rpt") + find_files("*yosys.log")
+    print(f"DEBUG: Found area files: {area_files}")
+    for fpath in area_files:
+        try:
+            with open(fpath, "r") as f:
+                content = f.read()
+                print(f"DEBUG: Reading {fpath}")
+                print(f"DEBUG: Content snippet: {content[:200]}")
+                
+                if metrics["area_um2"] is None:
+                    # Match: "Chip area for module '\synth_counter': 100.096000"
+                    # Simplified Regex: Chip area.*: [number]
+                    match = re.search(r"Chip area.*:\s*([0-9.]+)", content, re.IGNORECASE)
+                    if match: 
+                        metrics["area_um2"] = float(match.group(1))
+                        print(f"DEBUG: Found Area: {metrics['area_um2']}")
+                    
+                if metrics["cell_count"] is None:
+                    # Match: "Number of cells:       12"
+                    # Simplified Regex: Number of cells.*: [number]
+                    match = re.search(r"Number of cells.*:\s*([0-9]+)", content, re.IGNORECASE)
+                    if match: 
+                        metrics["cell_count"] = int(match.group(1))
+                        print(f"DEBUG: Found Cell Count: {metrics['cell_count']}")
+        except: pass
+        if metrics["area_um2"] and metrics["cell_count"]: break
+
+    # 2. Extract Timing (STA Logs/Reports)
+    timing_files = find_files("*sta.log") + find_files("*timing.rpt")
+    for fpath in timing_files:
+        try:
+            with open(fpath, "r") as f:
+                content = f.read()
+                # Look for WNS (Worst Negative Slack)
+                # Pattern: "wns ... -1.23" or "slack (VIOLATED) : -1.23"
+                if metrics["wns_ns"] is None:
+                    match = re.search(r"wns\s+([0-9.-]+)", content, re.IGNORECASE)
+                    if match: metrics["wns_ns"] = float(match.group(1))
+                    
+                    # Fallback: OpenROAD report style
+                    match = re.search(r"slack.*:\s*([0-9.-]+)", content, re.IGNORECASE)
+                    if match: metrics["wns_ns"] = float(match.group(1))
+        except: pass
+        if metrics["wns_ns"]: break
+
+    # 3. Extract Power (Power Reports)
+    power_files = find_files("*power.rpt") + find_files("*sta.log")
+    for fpath in power_files:
+        try:
+            with open(fpath, "r") as f:
+                content = f.read()
+                # Pattern: "Total Power ... 1.23e-05"
+                if metrics["power_uw"] is None:
+                    match = re.search(r"Total Power\s+([0-9.eE+-]+)", content, re.IGNORECASE)
+                    if match: metrics["power_uw"] = float(match.group(1))
+        except: pass
+        if metrics["power_uw"]: break
+
     return metrics

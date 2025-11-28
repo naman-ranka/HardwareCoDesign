@@ -86,10 +86,13 @@ def simulation_tool(verilog_files: list[str], top_module: str) -> str:
     else:
         return f"Simulation FAILED.\nStdout: {result['stdout']}\nStderr: {result['stderr']}"
 
+from src.tools.search_logs import search_logs
+
 @tool
 def synthesis_tool(design_file: str, top_module: str) -> str:
     """
     Runs logic synthesis using OpenROAD Flow Scripts (ORFS).
+    Returns a rich summary including generated files and key metrics.
     Args:
         design_file: Name of the Verilog design file (e.g., 'design.v').
         top_module: Name of the top module to synthesize.
@@ -103,11 +106,30 @@ def synthesis_tool(design_file: str, top_module: str) -> str:
     result = run_synthesis([abs_file], top_module=top_module, cwd=workspace)
     
     if result["success"]:
-        return "Synthesis Command Successful (Check PPA metrics for details)."
+        # 1. Auto-Grep for Metrics
+        area_info = search_logs("Chip area", workspace)
+        wns_info = search_logs("WNS", workspace)
+        if "No matches" in wns_info: wns_info = search_logs("slack", workspace)
+        
+        # 2. List Generated Files (GDS, Reports)
+        results_dir = os.path.join(workspace, "orfs_results", "sky130hd", top_module, "base")
+        files_summary = ""
+        if os.path.exists(results_dir):
+            files = [f for f in os.listdir(results_dir) if f.endswith(('.gds', '.v', '.rpt'))]
+            files_summary = ", ".join(files[:5]) # List first 5 relevant files
+            
+        return f"""Synthesis Command Successful! ✅
+        
+🔍 Quick PPA Scan:
+{area_info.splitlines()[0] if "File:" in area_info else "Area: Not found"}
+{wns_info.splitlines()[0] if "File:" in wns_info else "Timing: Not found"}
+
+📂 Output Files (in orfs_results):
+{files_summary} ...
+
+(Use 'ppa_tool' for full detailed metrics)"""
     else:
-        # Check for partial success (netlist existence) as ORFS often fails later
-        # We rely on the agent to check PPA next.
-        return f"Synthesis Command Finished. Output:\n{result['stderr'][-500:]}" # Return last 500 chars of stderr
+        return f"Synthesis Command Finished. Output:\n{result['stderr'][-1000:]}"
 
 @tool
 def ppa_tool() -> str:
@@ -136,6 +158,17 @@ def waveform_tool(vcd_file: str, signals: list[str], start_time: int = 0, end_ti
     abs_file = os.path.join(workspace, vcd_file)
     return read_waveform(abs_file, signals, start_time, end_time)
 
+@tool
+def search_logs_tool(query: str) -> str:
+    """
+    Searches for a keyword in all OpenROAD logs and reports.
+    Useful for finding specific errors, warnings, or metrics (e.g. "slack", "error", "area").
+    Args:
+        query: The string to search for.
+    """
+    workspace = get_workspace_path()
+    return search_logs(query, workspace)
+
 # List of tools to bind to the agent
 architect_tools = [
     write_file,
@@ -144,5 +177,6 @@ architect_tools = [
     simulation_tool,
     synthesis_tool,
     ppa_tool,
-    waveform_tool
+    waveform_tool,
+    search_logs_tool
 ]
