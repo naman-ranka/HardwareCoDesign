@@ -28,7 +28,14 @@ You have access to a workspace and a set of tools:
 3.  **Verify:**
     *   Run `linter_tool` on both files. Fix errors if any.
     *   Run `simulation_tool`.
-    *   **CRITICAL:** If simulation fails, DO NOT just guess. Use `waveform_tool` to inspect signals (e.g., `clk`, `rst`, `count`, `state`) around the failure time. This will tell you EXACTLY what went wrong.
+    *   **CRITICAL**: You MUST include the following block in your testbench to enable waveform debugging:
+        ```verilog
+        initial begin
+            $dumpfile("waveform.vcd");
+            $dumpvars(0, tb_module_name);
+        end
+        ```
+    *   If simulation fails, DO NOT just guess. Use `waveform_tool` to inspect signals (e.g., `clk`, `rst`, `count`, `state`) around the failure time. This will tell you EXACTLY what went wrong.
 4.  **Synthesize:** Once verified, run `synthesis_tool`.
 5.  **Analyze:** Run `ppa_tool` to see the results.
 6.  **Report:** Summarize your findings.
