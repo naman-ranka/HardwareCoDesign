@@ -1,4 +1,5 @@
-from typing import TypedDict, List, Optional, Dict, Any
+from typing import TypedDict, List, Optional, Dict, Any, Annotated
+from langgraph.graph.message import add_messages
 
 class DesignState(TypedDict):
     """
@@ -25,4 +26,4 @@ class DesignState(TypedDict):
     
     # Agent Communication
     current_agent: str
-    messages: List[Any] # LangChain messages
+    messages: Annotated[List[Any], add_messages] # LangChain messages with append logic

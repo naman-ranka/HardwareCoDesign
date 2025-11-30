@@ -1,77 +1,72 @@
 import os
+import json
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from dotenv import load_dotenv
 from src.state.state import DesignState
-from src.tools.get_ppa import get_ppa_metrics
+from src.tools.wrappers import ppa_tool
 from src.config import DEFAULT_MODEL
 
-load_dotenv()
-
 # Initialize LLM
+if "GOOGLE_API_KEY" not in os.environ:
+    from dotenv import load_dotenv
+    load_dotenv()
+
 llm = ChatGoogleGenerativeAI(model=DEFAULT_MODEL, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
-SYSTEM_PROMPT = """You are an expert Digital Design Engineer specializing in PPA (Power, Performance, Area) Optimization.
-Your goal is to analyze the synthesis results of a Verilog design and provide insights.
+# Bind tools
+tools = [ppa_tool]
+llm_with_tools = llm.bind_tools(tools)
 
-Input:
-1. Design Specification
-2. Extracted PPA Metrics (Area, Cell Count, Timing, Power)
-3. Synthesis Log/Report Snippets (if available)
+SYSTEM_PROMPT = """You are a PPA Analyst.
+Your goal is to extract and analyze Power, Performance, and Area metrics.
 
-Output:
-A concise analysis of the design's quality.
-- If the design meets typical expectations for such a spec.
-- Identify any obvious issues (e.g., zero area, huge cell count for simple logic).
-- Suggest 1-2 potential optimizations if applicable.
+Tools:
+- `ppa_tool`: Extracts metrics from the logs.
 
-Format your response as a structured summary.
+Process:
+1. Call `ppa_tool`.
+2. Analyze the returned JSON metrics against the design spec.
+3. Provide a summary report.
 """
 
 def ppa_analyst_node(state: DesignState) -> DesignState:
     """
-    Agent node that extracts PPA metrics and analyzes them.
+    Agent node that analyzes PPA using Tool Calls.
     """
-    print("📊 PPA Analyst: Extracting and Analyzing Metrics...")
+    print("📊 PPA Analyst: Analyzing...")
     
-    # 1. Extract Metrics using the Tool
-    # We assume logs are in workspace/orfs_logs relative to the project root
-    # We need to resolve the path dynamically
-    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../workspace'))
-    logs_dir = os.path.join(base_path, "orfs_logs")
-    
-    metrics = get_ppa_metrics(logs_dir)
-    
-    # 2. Construct Prompt for LLM Analysis
-    metrics_str = f"""
-    Area: {metrics.get('area_um2', 'N/A')} um^2
-    Cell Count: {metrics.get('cell_count', 'N/A')}
-    WNS (Timing): {metrics.get('wns_ns', 'N/A')} ns
-    Power: {metrics.get('power_uw', 'N/A')} uW
-    Errors: {metrics.get('errors', [])}
-    """
-    
-    user_message = f"""
-    Design Spec: {state['design_spec']}
-    
-    Measured PPA Metrics:
-    {metrics_str}
-    
-    Please analyze these results.
-    """
-    
-    # 3. Call LLM
-    response = llm.invoke([
+    messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=user_message)
-    ])
+        HumanMessage(content=f"Design Spec: {state['design_spec']}. Synthesis is complete. Please analyze PPA.")
+    ]
     
-    analysis = response.content
-    print(f"📊 Analysis:\n{analysis}")
+    response = llm_with_tools.invoke(messages)
+    messages.append(response)
     
-    # 4. Update State
-    # We update ppa_metrics and append the analysis to messages
+    metrics = {}
+    
+    max_turns = 3
+    turn = 0
+    
+    while response.tool_calls and turn < max_turns:
+        turn += 1
+        for tool_call in response.tool_calls:
+            output = ppa_tool.invoke(tool_call["args"])
+            try:
+                # ppa_tool returns a string repr of a dict
+                # We try to parse it safely if we want to store it in state['ppa_metrics']
+                # But ppa_tool output might be just a string.
+                # Let's trust ast.literal_eval or json if strict.
+                import ast
+                metrics = ast.literal_eval(output)
+            except:
+                pass
+            messages.append(ToolMessage(content=output, tool_call_id=tool_call["id"]))
+
+        response = llm_with_tools.invoke(messages)
+        messages.append(response)
+
     return {
         "ppa_metrics": metrics,
-        "messages": [f"PPA Analysis: {analysis}"]
+        "messages": [AIMessage(content="**PPA Analyst**: " + response.content)]
     }
