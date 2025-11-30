@@ -1,5 +1,5 @@
 import os
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.state.state import DesignState
 from src.tools.run_simulation import run_simulation
@@ -89,12 +89,16 @@ def verifier_node(state: DesignState) -> DesignState:
         "error_logs": []
     }
     
+    status_msg = ""
     if not result["success"]:
         # Simulation failed or Test failed
         error_msg = f"Simulation Failed.\nStdout: {result['stdout']}\nStderr: {result['stderr']}"
         new_state["error_logs"] = [error_msg]
         print("❌ Verification Failed.")
+        status_msg = "**Verifier**: Simulation FAILED. ❌"
     else:
         print("✅ Verification Passed.")
+        status_msg = "**Verifier**: Simulation PASSED. ✅"
         
+    new_state["messages"] = [AIMessage(content=status_msg)]
     return new_state

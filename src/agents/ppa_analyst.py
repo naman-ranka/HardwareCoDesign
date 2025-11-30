@@ -1,6 +1,6 @@
 import os
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from dotenv import load_dotenv
 from src.state.state import DesignState
 from src.tools.get_ppa import get_ppa_metrics
@@ -73,5 +73,5 @@ def ppa_analyst_node(state: DesignState) -> DesignState:
     # We update ppa_metrics and append the analysis to messages
     return {
         "ppa_metrics": metrics,
-        "messages": [f"PPA Analysis: {analysis}"]
+        "messages": [AIMessage(content=f"**PPA Analyst Report**:\n{analysis}")]
     }

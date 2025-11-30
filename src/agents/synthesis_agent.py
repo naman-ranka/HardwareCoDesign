@@ -1,4 +1,5 @@
 import os
+from langchain_core.messages import AIMessage
 from src.state.state import DesignState
 from src.tools.run_synthesis import run_synthesis
 
@@ -41,7 +42,7 @@ def synthesis_node(state: DesignState) -> DesignState:
     
     if result["success"]:
         print("✅ Synthesis Successful.")
-        return {"messages": ["Synthesis Successful."]}
+        return {"messages": [AIMessage(content="**Synthesis Agent**: Synthesis job finished successfully. ✅")]}
     else:
         # Check if artifacts exist (partial success)
         # We reuse the logic from verify_synthesis, or just rely on the tool output?
@@ -55,7 +56,7 @@ def synthesis_node(state: DesignState) -> DesignState:
         
         if found:
             print("⚠️ Synthesis Command Failed, but Netlist Found. Proceeding.")
-            return {"messages": ["Synthesis Partial Success (Netlist found)."]}
+            return {"messages": [AIMessage(content="**Synthesis Agent**: Synthesis job partial success (Netlist found).")]}
         
         print("❌ Synthesis Failed.")
-        return {"messages": [f"Synthesis Failed: {result['stderr']}"]}
+        return {"messages": [AIMessage(content=f"**Synthesis Agent**: Synthesis job FAILED. ❌\n{result['stderr'][-500:]}")]}
