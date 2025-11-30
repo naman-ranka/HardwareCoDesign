@@ -1,5 +1,5 @@
 import os
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.state.state import DesignState
 from src.config import DEFAULT_MODEL
@@ -31,7 +31,7 @@ def rtl_coder_node(state: DesignState) -> DesignState:
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
     
     # Context Construction
-    if state.get("verilog_code"):
+    if state.get("verilog_code") and state.get("error_logs"):
         # We are in a fix loop
         user_content = f"""
         Current Code:
@@ -42,6 +42,7 @@ def rtl_coder_node(state: DesignState) -> DesignState:
         
         Please fix the errors and return the corrected Verilog code.
         """
+        action_desc = "Fixing RTL bugs..."
     else:
         # Fresh generation
         user_content = f"""
@@ -50,6 +51,7 @@ def rtl_coder_node(state: DesignState) -> DesignState:
         
         Please generate the Verilog code for this specification.
         """
+        action_desc = "Generating initial RTL..."
         
     messages.append(HumanMessage(content=user_content))
     
@@ -63,4 +65,7 @@ def rtl_coder_node(state: DesignState) -> DesignState:
     elif code.startswith("```"):
         code = code.replace("```", "")
         
-    return {"verilog_code": code.strip()}
+    return {
+        "verilog_code": code.strip(),
+        "messages": [AIMessage(content=f"**RTL Coder**: {action_desc} Code generated.")]
+    }
