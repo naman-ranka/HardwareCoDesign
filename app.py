@@ -5,14 +5,20 @@ import shutil
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
-from src.agents.architect import create_architect_agent, SYSTEM_PROMPT
+
+# Architect (Single Agent)
+from src.agents.architect import create_architect_agent, SYSTEM_PROMPT as ARCHITECT_PROMPT
+
+# Multi-Agent
+from src.graph.graph import create_graph as create_multi_agent_graph
 
 from src.utils.session_manager import SessionManager
+from src.utils.visualizers import render_waveform, render_gds
 
 # Load environment
 load_dotenv()
 
-st.set_page_config(page_title="SiliconCrew Architect", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="SiliconCrew Architect", layout="wide", initial_sidebar_state="expanded")
 
 # Initialize Manager
 session_manager = SessionManager(base_dir=os.path.join(os.path.dirname(__file__), 'workspace'), 
@@ -20,7 +26,6 @@ session_manager = SessionManager(base_dir=os.path.join(os.path.dirname(__file__)
 
 # --- Session Logic ---
 if "current_session" not in st.session_state:
-    # Default to Home (None) instead of auto-loading
     st.session_state.current_session = None
 
 # Set Workspace Env Var (if session active)
@@ -38,6 +43,10 @@ st.markdown("""
     .stChatMessage { padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
     .tool-call { background-color: transparent; padding: 0.5rem; border-radius: 0.3rem; border-left: 3px solid #2196f3; font-family: monospace; margin-bottom: 0.5rem; }
     .tool-output { background-color: #f0f2f6; padding: 0.5rem; border-radius: 0.3rem; font-family: monospace; font-size: 0.9em; border-left: 3px solid #ff4b4b; }
+
+    /* Status indicators */
+    .status-pass { color: green; font-weight: bold; }
+    .status-fail { color: red; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,11 +77,18 @@ def render_home():
         st.subheader("🚀 Start New Session")
         with st.form("new_session_home"):
             tag = st.text_input("Session Name (Required)", placeholder="e.g., LFSR_Design")
+
+            # Mode Selection
+            mode = st.radio("Select Design Mode",
+                           ["Single Agent (Architect)", "Multi-Agent Crew (Pipeline)"],
+                           help="Single Agent: Interactive chat with one powerful agent.\nMulti-Agent: Autonomous pipeline with specialized agents.")
+
             if st.form_submit_button("Create & Start", type="primary", use_container_width=True):
                 if tag:
                     try:
                         new_session = session_manager.create_session(tag=tag)
                         st.session_state.current_session = new_session
+                        st.session_state.agent_mode = "multi" if "Multi" in mode else "single"
                         st.rerun()
                     except ValueError as e:
                         st.error(str(e))
@@ -89,10 +105,10 @@ def render_home():
                 c1, c2 = st.columns([0.8, 0.2])
                 if c1.button(f"📄 {sess}", key=f"load_{sess}", use_container_width=True):
                     st.session_state.current_session = sess
+                    # Default to single if not tracked (could save mode in metadata later)
+                    st.session_state.agent_mode = "single"
                     st.rerun()
                 if c2.button("🗑️", key=f"del_{sess}"):
-                    # Delete logic would go here (need to add delete_session to manager)
-                    # For now, just clear all is available
                     pass
         else:
             st.info("No previous sessions found.")
@@ -102,56 +118,21 @@ def render_home():
         session_manager.clear_all_sessions()
         st.rerun()
 
-# Helper to build a tree structure from file paths
-def build_file_tree(root_path):
-    tree = {"files": [], "dirs": {}}
-    relevant_extensions = ('.v', '.sv', '.rpt', '.txt', '.log', '.gds', '.sdc', '.lef', '.def', '.lib')
-    
-    if os.path.exists(root_path):
-        for item in sorted(os.listdir(root_path)):
-            item_path = os.path.join(root_path, item)
-            if os.path.isdir(item_path):
-                # Recursively build tree for subdirs
-                sub_tree = build_file_tree(item_path)
-                if sub_tree["files"] or sub_tree["dirs"]: # Only add if not empty
-                    tree["dirs"][item] = sub_tree
-            elif item.endswith(relevant_extensions):
-                tree["files"].append(item)
-    return tree
-
-def render_tree_view(tree, current_path=""):
-    # Render Files first (optional preference, or dirs first)
-    for f in tree["files"]:
-        full_path = os.path.join(current_path, f)
-        # Use a unique key for each button
-        if st.sidebar.button(f"📄 {f}", key=f"file_{full_path}", use_container_width=True):
-            st.session_state.selected_file = full_path
-            st.rerun()
-            
-    # Render Directories
-    for d, sub_tree in tree["dirs"].items():
-        # Create a unique key for the expander
-        with st.sidebar.expander(f"📁 {d}", expanded=False):
-            render_tree_view(sub_tree, os.path.join(current_path, d))
-
-from src.utils.visualizers import render_waveform, render_gds
-
-# ... (rest of imports)
-
 def render_workspace():
     # --- Main Layout ---
-    # Top Bar for Navigation
-    top_col1, top_col2 = st.columns([0.1, 0.9])
+    # Top Bar
+    top_col1, top_col2, top_col3 = st.columns([0.1, 0.7, 0.2])
     with top_col1:
         if st.button("🏠", help="Back to Home"):
             st.session_state.current_session = None
             st.rerun()
     with top_col2:
-        st.caption(f"Session: `{st.session_state.current_session}`")
+        mode_label = "Multi-Agent 👥" if st.session_state.get("agent_mode") == "multi" else "Single Architect 👤"
+        st.caption(f"Session: `{st.session_state.current_session}` | Mode: **{mode_label}**")
 
     col1, col2 = st.columns([1.2, 0.8])
 
-    # Column 2: Live Workspace (Code & Metrics)
+    # Column 2: Live Workspace (Code & Metrics) - SAME for both modes
     with col2:
         # Header with "Close File" if viewing a specific file
         if st.session_state.get("selected_file"):
@@ -161,7 +142,6 @@ def render_workspace():
                 st.session_state.selected_file = None
                 st.rerun()
                 
-            # Render Selected File
             file_path = os.path.join(CURRENT_WORKSPACE, st.session_state.selected_file)
             if os.path.exists(file_path):
                 try:
@@ -174,17 +154,13 @@ def render_workspace():
                 st.error("File not found.")
                 
         else:
-            # Default View: Live Tabs (Generated Files)
             st.subheader("Live Workspace")
-            
-            # Tabs for different views
             tab_code, tab_wave, tab_layout = st.tabs(["📝 Code", "📈 Waveform", "🗺️ Layout"])
             
             with tab_code:
                 file_viewer_placeholder = st.empty()
                 def render_files():
                     with file_viewer_placeholder.container():
-                        # Right Side: Only show root level source files (generated by write_file)
                         if os.path.exists(CURRENT_WORKSPACE):
                             all_files = sorted(os.listdir(CURRENT_WORKSPACE))
                             files = [f for f in all_files if f.endswith(('.v', '.sv', '.rpt', '.txt', '.log')) and os.path.isfile(os.path.join(CURRENT_WORKSPACE, f))]
@@ -219,7 +195,6 @@ def render_workspace():
                     st.info("Workspace not ready.")
 
             with tab_layout:
-                # Recursive search for GDS
                 gds_files = []
                 if os.path.exists(CURRENT_WORKSPACE):
                     for root, dirs, files in os.walk(CURRENT_WORKSPACE):
@@ -239,16 +214,34 @@ def render_workspace():
     with col1:
         st.subheader("Chat")
         
-        # Initialize Agent
+        # Initialize Agent based on Mode
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         memory = SqliteSaver(conn)
-        agent_graph = create_architect_agent(checkpointer=memory)
+        
+        mode = st.session_state.get("agent_mode", "single")
+
+        if mode == "single":
+            agent_graph = create_architect_agent(checkpointer=memory)
+        else:
+            # Multi-Agent doesn't necessarily need the same checkpointer structure if it's StateGraph(DesignState)
+            # But we can try passing it if the graph compiles with it.
+            # Our DesignState uses `messages` list, so history should be preserved.
+            # However, create_graph() in src/graph/graph.py doesn't take checkpointer arg yet.
+            # We'll just instantiate it.
+            agent_graph = create_multi_agent_graph()
+
         config = {"configurable": {"thread_id": st.session_state.current_session}}
         
-        current_state = agent_graph.get_state(config)
-        
+        # Recover State
+        # For Single Agent, state["messages"] is the history.
+        # For Multi Agent, state["messages"] is ALSO the history (we added it to TypedDict).
+        try:
+            current_state = agent_graph.get_state(config)
+        except Exception:
+            current_state = None
+
         # Render History
-        if current_state.values and "messages" in current_state.values:
+        if current_state and current_state.values and "messages" in current_state.values:
             for msg in current_state.values["messages"]:
                 if isinstance(msg, SystemMessage): continue
                 
@@ -256,6 +249,7 @@ def render_workspace():
                 if isinstance(msg, AIMessage):
                     role = "assistant"
                     with st.chat_message(role):
+                        # Tool Calls (Single Agent only usually)
                         if hasattr(msg, "tool_calls") and msg.tool_calls:
                             for tool_call in msg.tool_calls:
                                 args_str = str(tool_call['args'])
@@ -272,8 +266,15 @@ def render_workspace():
                     with st.chat_message(role):
                         with st.expander("🛠️ Tool Output", expanded=False):
                             st.markdown(f"```\n{msg.content}\n```")
+                else:
+                     # User Message
+                     with st.chat_message("user"):
+                         st.markdown(msg.content)
         else:
-            st.info("👋 Hi! I'm the Architect. What hardware shall we build today?")
+            if mode == "single":
+                st.info("👋 Hi! I'm the Architect. What hardware shall we build today?")
+            else:
+                st.info("👥 SiliconCrew Team Ready. Describe the design specification.")
 
         # Input
         if prompt := st.chat_input("Ex: Design an 8-bit counter"):
@@ -281,51 +282,96 @@ def render_workspace():
                 st.markdown(prompt)
                 
             with st.chat_message("assistant"):
-                status_container = st.status("Thinking...", expanded=True)
+                status_container = st.status("Working...", expanded=True)
                 response_placeholder = st.empty()
                 full_response = ""
                 
                 try:
-                    input_messages = []
-                    snapshot = agent_graph.get_state(config)
-                    if not snapshot.values or not snapshot.values.get("messages"):
-                        input_messages.append(SystemMessage(content=SYSTEM_PROMPT))
-                    
-                    input_messages.append(("user", prompt))
-                    config["recursion_limit"] = 50
-                    
-                    events = agent_graph.stream({"messages": input_messages}, config)
-                    
-                    for event in events:
-                        if "agent" in event:
-                            msg = event["agent"]["messages"][-1]
-                            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                                for tool_call in msg.tool_calls:
-                                    status_container.markdown(f"**🛠️ Calling {tool_call['name']}**")
-                            
-                            clean_text = get_clean_content(msg)
-                            if clean_text:
-                                full_response = clean_text
-                                response_placeholder.markdown(full_response)
+                    if mode == "single":
+                        # SINGLE AGENT LOGIC
+                        input_messages = []
+                        snapshot = agent_graph.get_state(config)
+                        if not snapshot.values or not snapshot.values.get("messages"):
+                            input_messages.append(SystemMessage(content=ARCHITECT_PROMPT))
+
+                        input_messages.append(("user", prompt))
+                        config["recursion_limit"] = 50
+
+                        events = agent_graph.stream({"messages": input_messages}, config)
+
+                        for event in events:
+                            if "agent" in event:
+                                msg = event["agent"]["messages"][-1]
+                                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                    for tool_call in msg.tool_calls:
+                                        status_container.markdown(f"**🛠️ Calling {tool_call['name']}**")
                                 
-                        elif "tools" in event:
-                            msg = event["tools"]["messages"][-1]
-                            content = msg.content
-                            status_container.markdown(f"**📄 Output:**\n```\n{content[:500]}...\n```")
-                            
-                            if "Successfully wrote to" in content:
-                                render_files() # Update tabs
-                                status_container.success(f"Updated file.")
-                            elif "FAILED" in content:
-                                status_container.error("Tool Failed. Retrying...")
-                            elif "PASSED" in content:
-                                status_container.success("Verification Passed!")
+                                clean_text = get_clean_content(msg)
+                                if clean_text:
+                                    full_response = clean_text
+                                    response_placeholder.markdown(full_response)
+
+                            elif "tools" in event:
+                                msg = event["tools"]["messages"][-1]
+                                content = msg.content
+                                status_container.markdown(f"**📄 Output:**\n```\n{content[:500]}...\n```")
+                                if "Successfully wrote to" in content:
+                                    render_files()
+                                    status_container.success(f"Updated file.")
+                                elif "FAILED" in content:
+                                    status_container.error("Tool Failed. Retrying...")
+                                elif "PASSED" in content:
+                                    status_container.success("Verification Passed!")
+
+                        status_container.update(label="Finished!", state="complete", expanded=False)
+
+                    else:
+                        # MULTI AGENT LOGIC
+                        # Initial State
+                        initial_state = {
+                            "design_spec": prompt,
+                            "iteration_count": 0,
+                            "max_iterations": 3,
+                            "messages": [HumanMessage(content=prompt)],
+                            "error_logs": [],
+                            "verilog_code": "",
+                            "testbench_code": "",
+                            "functional_valid": False
+                        }
+
+                        # Use update_state if session exists to preserve history?
+                        # Ideally we load existing state, but for this demo, let's treat new prompt as new spec logic
+                        # Or better: merge.
+
+                        events = agent_graph.stream(initial_state, config)
+
+                        for event in events:
+                            # Event is a dict like {'rtl_coder': {'verilog_code': ..., 'messages': ...}}
+                            for node_name, state_update in event.items():
+                                status_container.markdown(f"**🔄 Node: {node_name}**")
                                 
-                    status_container.update(label="Finished!", state="complete", expanded=False)
-                                
+                                if "messages" in state_update and state_update["messages"]:
+                                    latest_msg = state_update["messages"][-1]
+                                    content = get_clean_content(latest_msg)
+                                    response_placeholder.markdown(content)
+
+                                    # If generated code, update tabs
+                                    if "verilog_code" in state_update or "testbench_code" in state_update:
+                                        render_files()
+
+                                if node_name == "verifier":
+                                    if state_update.get("functional_valid"):
+                                        status_container.success("Verification PASSED ✅")
+                                    else:
+                                        status_container.error("Verification FAILED ❌")
+
+                        status_container.update(label="Workflow Complete!", state="complete", expanded=False)
+
                 except Exception as e:
                     status_container.update(label="Error", state="error")
                     st.error(f"❌ Error: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
                     
         conn.close()
 
@@ -333,7 +379,6 @@ def render_workspace():
 if "current_session" not in st.session_state or st.session_state.current_session is None:
     render_home()
 else:
-    # Ensure workspace env var is set
     CURRENT_WORKSPACE = session_manager.get_workspace_path(st.session_state.current_session)
     os.environ["RTL_WORKSPACE"] = CURRENT_WORKSPACE
     render_workspace()
