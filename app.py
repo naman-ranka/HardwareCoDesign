@@ -5,7 +5,7 @@ import shutil
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
-from src.agents.architect import create_architect_agent, SYSTEM_PROMPT
+from src.agent import create_architect_agent
 
 from src.utils.session_manager import SessionManager
 
@@ -361,9 +361,6 @@ def render_workspace():
                 
                 try:
                     input_messages = []
-                    snapshot = agent_graph.get_state(config)
-                    if not snapshot.values or not snapshot.values.get("messages"):
-                        input_messages.append(SystemMessage(content=SYSTEM_PROMPT))
                     
                     input_messages.append(("user", prompt))
                     config["recursion_limit"] = 50
