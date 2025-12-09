@@ -287,6 +287,27 @@ def sby_tool(sby_file: str) -> str:
     
     return f"SBY Run Finished. Status: {result['status']} {status_icon}\nOutput:\n{result['stdout'][-500:]}"
 
+@tool
+def list_files_tool() -> str:
+    """
+    Lists all files in the current workspace.
+    Use this to explore the project structure or verify generated files.
+    """
+    workspace = get_workspace_path()
+    if not os.path.exists(workspace):
+        return "Workspace directory does not exist."
+        
+    files = []
+    for root, dirs, filenames in os.walk(workspace):
+        for f in filenames:
+            rel_path = os.path.relpath(os.path.join(root, f), workspace)
+            files.append(rel_path)
+            
+    if not files:
+        return "Workspace is empty."
+        
+    return "Files in workspace:\n" + "\n".join(sorted(files))
+
 # List of tools to bind to the agent
 architect_tools = [
     write_file,
@@ -300,5 +321,6 @@ architect_tools = [
     schematic_tool,
     search_logs_tool,
     cocotb_tool,
-    sby_tool
+    sby_tool,
+    list_files_tool
 ]

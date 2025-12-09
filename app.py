@@ -173,9 +173,10 @@ def render_home():
                     st.session_state.current_session = sess
                     st.rerun()
                 if c2.button("🗑️", key=f"del_{sess}"):
-                    # Delete logic would go here (need to add delete_session to manager)
-                    # For now, just clear all is available
-                    pass
+                    session_manager.delete_session(sess)
+                    if st.session_state.current_session == sess:
+                        st.session_state.current_session = None
+                    st.rerun()
         else:
             st.info("No previous sessions found.")
             
@@ -402,14 +403,21 @@ def render_workspace():
         st.subheader("Chat")
         
         # Initialize Agent
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        memory = SqliteSaver(conn)
-        # Pass Dynamic Model
-        model_to_use = st.session_state.get("selected_model", "gemini-2.5-flash")
-        agent_graph = create_architect_agent(checkpointer=memory, model_name=model_to_use)
-        config = {"configurable": {"thread_id": st.session_state.current_session}}
-        
-        current_state = agent_graph.get_state(config)
+        try:
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            memory = SqliteSaver(conn)
+            # Pass Dynamic Model
+            model_to_use = st.session_state.get("selected_model", "gemini-2.5-flash")
+            agent_graph = create_architect_agent(checkpointer=memory, model_name=model_to_use)
+            config = {"configurable": {"thread_id": st.session_state.current_session}}
+            
+            current_state = agent_graph.get_state(config)
+        except Exception as e:
+            st.error(f"Error loading session state: {e}")
+            st.warning("Session data might be corrupted or deleted. Returning to Home.")
+            time.sleep(2)
+            st.session_state.current_session = None
+            st.rerun()
         
         # Render History with Grouping
         if current_state.values and "messages" in current_state.values:

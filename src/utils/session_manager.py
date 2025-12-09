@@ -109,6 +109,35 @@ class SessionManager:
         conn.commit()
         conn.close()
 
+    def delete_session(self, session_id):
+        """Deletes a session directory and its metadata."""
+        # 1. Delete Directory
+        session_path = os.path.join(self.base_dir, session_id)
+        if os.path.exists(session_path):
+            shutil.rmtree(session_path)
+            
+        # 2. Delete Metadata
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            # Delete Metadata
+            cursor.execute("DELETE FROM session_metadata WHERE session_id = ?", (session_id,))
+            
+            # Delete LangGraph Checkpoints (if tables exist)
+            # Note: Table names are typically 'checkpoints' and 'checkpoint_writes' or similar depending on version.
+            # SqliteSaver uses 'checkpoints', 'checkpoint_writes', 'checkpoint_blobs' usually.
+            # We attempt to delete safely.
+            cursor.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
+            cursor.execute("DELETE FROM checkpoint_writes WHERE thread_id = ?", (session_id,))
+            cursor.execute("DELETE FROM checkpoint_blobs WHERE thread_id = ?", (session_id,))
+        except sqlite3.OperationalError:
+            # Tables might not exist or schema differs; ignore to prevent crash
+            pass
+            
+        conn.commit()
+        conn.close()
+
     def clear_all_sessions(self):
         """Deletes all workspace folders and the database."""
         # Clear Workspace
